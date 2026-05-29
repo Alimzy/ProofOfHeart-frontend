@@ -96,4 +96,12 @@ describe("DonationModal", () => {
     fireEvent.change(input, { target: { value: "abc" } });
     expect(button).toBeDisabled();
   });
+
+  it("renders the platform fee explanation", () => {
+    render(<DonationModal {...defaultProps} />);
+
+    expect(
+      screen.getByText(/A platform fee of 3% is deducted from funds when withdrawn by the creator/),
+    ).toBeInTheDocument();
+  });
 });
