@@ -32,6 +32,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
+import { useTranslations } from 'next-intl';
 import { Campaign, Vote, CATEGORY_LABELS, stroopsToXlm } from '@/types';
 import { parseContractError } from '@/utils/contractErrors';
 import { getAsyncActionErrorMessage, withActionTimeout } from '@/utils/asyncAction';
@@ -42,6 +43,7 @@ function formatDate(ts: number) {
 
 export default function CauseDetailClient({ id }: { id: string }) {
   const { publicKey: userWalletAddress } = useWallet();
+  const tContractErrors = useTranslations('ContractErrors');
   const { campaign: fetchedCampaign, isLoading, error, refetch } = useCampaign(Number(id));
   const { platformFeeBps, isLoading: isPlatformFeeLoading, isFallback } = usePlatformFee();
 
@@ -63,6 +65,9 @@ export default function CauseDetailClient({ id }: { id: string }) {
   const [isClaimingRefund, setIsClaimingRefund] = useState(false);
   const [refundTxHash, setRefundTxHash] = useState<string | null>(null);
   const [alreadyRefunded, setAlreadyRefunded] = useState(false);
+
+  const localizeContractError = (message: string) =>
+    message.startsWith('ContractErrors.') ? tContractErrors(message) : message;
 
   useEffect(() => { if (fetchedCampaign) setCampaign(fetchedCampaign); }, [fetchedCampaign]);
 
@@ -170,7 +175,7 @@ export default function CauseDetailClient({ id }: { id: string }) {
         setAlreadyRefunded(true);
         showWarning('Refund already claimed or no funds to refund.');
       } else {
-        showError(msg);
+        showError(localizeContractError(msg));
       }
     } finally {
       setIsClaimingRefund(false);

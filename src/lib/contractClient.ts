@@ -72,37 +72,66 @@ async function buildAndSubmitTransaction(
   const server = getServer();
   options?.onStatus?.({ phase: "building" });
   const sourceAccount = await server.getAccount(sourcePublicKey);
+  const effectiveFeePerOperation =
+    feePerOperation ?? (await getRecommendedFeePerOperation());
 
-  const txBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
-    fee: StellarSdk.BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-  txBuilder.addOperation(contractOp);
-  txBuilder.setTimeout(300);
+  const submitOnce = async (nextFeePerOperation: number) => {
+    const txBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
+      fee: `${nextFeePerOperation}`,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+    txBuilder.addOperation(contractOp);
+    txBuilder.setTimeout(300);
 
-  const builtTx = txBuilder.build();
-  const simulated = await server.simulateTransaction(builtTx);
+    const builtTx = txBuilder.build();
+    const simulated = await server.simulateTransaction(builtTx);
 
-  if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
-    throw new Error(simulated.error ?? "Transaction simulation failed.");
-  }
+    if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
+      throw new Error(simulated.error ?? "Transaction simulation failed.");
+    }
 
-  const preparedTx = StellarSdk.rpc
-    .assembleTransaction(
-      builtTx,
-      simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse,
-    )
-    .build();
+    const preparedTx = StellarSdk.rpc
+      .assembleTransaction(
+        builtTx,
+        simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse,
+      )
+      .build();
 
   options?.onStatus?.({ phase: "signing" });
   const { signedTxXdr } = await signTransaction(preparedTx.toXDR(), {
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  const signedTx = StellarSdk.TransactionBuilder.fromXDR(
-    signedTxXdr,
-    NETWORK_PASSPHRASE,
-  ) as StellarSdk.Transaction;
+    const signedTx = StellarSdk.TransactionBuilder.fromXDR(
+      signedTxXdr,
+      NETWORK_PASSPHRASE,
+    ) as StellarSdk.Transaction;
+
+    const submissionResult = await server.sendTransaction(signedTx);
+
+    if (submissionResult.status === "ERROR") {
+      throw new Error(
+        stringifyError(
+          (submissionResult as { errorResult?: string; error?: string; message?: string }).errorResult ??
+            (submissionResult as { error?: string }).error ??
+            (submissionResult as { message?: string }).message ??
+            "Transaction submission failed.",
+        ),
+      );
+    }
+
+    let getResult = await server.getTransaction(submissionResult.hash);
+    while (getResult.status === "NOT_FOUND") {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      getResult = await server.getTransaction(submissionResult.hash);
+    }
+
+    if (getResult.status === "FAILED") {
+      throw new Error("Transaction failed on-chain.");
+    }
+
+    return getResult as StellarSdk.rpc.Api.GetSuccessfulTransactionResponse;
+  };
 
   options?.onStatus?.({ phase: "submitting" });
   const submissionResult = await server.sendTransaction(signedTx);
