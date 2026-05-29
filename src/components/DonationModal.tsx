@@ -50,8 +50,8 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
       if (e.key === "Tab" && dialogRef.current) {
         const focusable = Array.from(
           dialogRef.current.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-          )
+            'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+          ),
         );
         if (focusable.length === 0) return;
         const first = focusable[0];
@@ -75,21 +75,73 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
 
   const goal = stroopsToXlm(campaign.funding_goal);
   const raised = stroopsToXlm(campaign.amount_raised);
-  const amountNum = parseFloat(amount) || 0;
+
+  // Robust validation for amount input
+  const validateAmount = (value: string): { valid: boolean; error?: string; amount?: number } => {
+    // Trim whitespace
+    const trimmed = value.trim();
+
+    // Empty input
+    if (!trimmed) {
+      return { valid: false };
+    }
+
+    // Reject scientific notation (e.g., 1e3, 1E-2)
+    if (/[eE]/.test(trimmed)) {
+      return { valid: false, error: "Scientific notation is not allowed." };
+    }
+
+    // Parse as float
+    const parsed = parseFloat(trimmed);
+
+    // Check for NaN
+    if (isNaN(parsed)) {
+      return { valid: false, error: "Please enter a valid number." };
+    }
+
+    // Check for non-finite values (Infinity, -Infinity)
+    if (!isFinite(parsed)) {
+      return { valid: false, error: "Please enter a valid amount." };
+    }
+
+    // Check if amount is positive
+    if (parsed <= 0) {
+      return { valid: false, error: "Amount must be greater than zero." };
+    }
+
+    // Check Stellar precision: max 7 decimal places
+    // Split by decimal point and check fractional part
+    const parts = trimmed.split(".");
+    if (parts.length > 2) {
+      return { valid: false, error: "Invalid number format." };
+    }
+    if (parts[1] && parts[1].length > 7) {
+      return { valid: false, error: "Maximum 7 decimal places allowed." };
+    }
+
+    return { valid: true, amount: parsed };
+  };
+
+  const validation = validateAmount(amount);
+  const amountNum = validation.amount || 0;
   const newRaised = raised + amountNum;
   const newPct = goal > 0 ? Math.min(100, Math.round((newRaised / goal) * 100)) : 0;
   const currentPct = goal > 0 ? Math.min(100, Math.round((raised / goal) * 100)) : 0;
 
   const handleDonate = async () => {
     if (!publicKey) return;
-    if (amountNum <= 0) {
-      setError("Please enter a valid amount.");
+
+    const validation = validateAmount(amount);
+    if (!validation.valid) {
+      setError(validation.error || "Please enter a valid amount.");
       return;
     }
+
+    const amountToSend = validation.amount!;
     setError(null);
     setStep("pending");
     try {
-      const stroops = xlmToStroops(amountNum);
+      const stroops = xlmToStroops(amountToSend);
       const hash = await contribute(campaign.id, publicKey, stroops);
       setTxHash(hash);
       setStep("confirmed");
@@ -108,7 +160,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
       role="presentation"
       onClick={(e) => e.target === e.currentTarget && step !== "pending" && onClose()}
       onKeyDown={(e) => {
-        if (e.key === 'Escape' && step !== "pending") {
+        if (e.key === "Escape" && step !== "pending") {
           onClose();
         }
       }}
@@ -122,7 +174,10 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-700">
-          <h2 id="donation-modal-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+          <h2
+            id="donation-modal-title"
+            className="text-lg font-semibold text-zinc-900 dark:text-zinc-50"
+          >
             {step === "confirmed" ? "Donation Confirmed" : "Fund This Cause"}
           </h2>
           {step !== "pending" && (
@@ -202,7 +257,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
 
               <button
                 onClick={handleDonate}
-                disabled={!publicKey || amountNum <= 0}
+                disabled={!publicKey || !validation.valid}
                 className="w-full py-3 bg-linear-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200"
               >
                 Donate {amountNum > 0 ? `${amountNum} XLM` : ""}

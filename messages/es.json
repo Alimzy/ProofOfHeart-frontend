@@ -62,6 +62,7 @@
     "transferAdmin": "Transferir Admin",
     "newAdminAddress": "Nueva Dirección de Admin",
     "adminConsole": "Consola de Administración",
+    "contractAdmin": "Admin del Contrato",
     "responsibility": "Responsabilidad Administrativa",
     "responsibilityText": "Como administrador, usted es responsable de garantizar que todas las causas cumplan con nuestras pautas comunitarias. La verificación actualiza el estado en la cadena, señalando confianza a los posibles contribuyentes. El rechazo cancelará la campaña y evitará nuevas contribuciones.",
     "confirmTransferTitle": "¿Transferir acceso de administrador?",
