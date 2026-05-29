@@ -5,13 +5,12 @@ import { appendWalletTransaction } from "./transactionLog";
 import { parseContractError, getContractErrorCode, ContractError } from "../utils/contractErrors";
 import { assertProductionContractConfig } from "./runtimeEnv";
 import {
-  validateAmount,
-  validateFundingGoal,
-  validateDuration,
-  validateRevenueShare,
-  validateStellarAddress
-} from "../utils/validators";
-import { captureTransactionError } from "./errorTracking";
+  classifyRpcFailure,
+  classifySimulationFailure,
+  recordObservabilityFailure,
+  recordObservabilityKind,
+  recordObservabilitySuccess,
+} from "./observability";
 
 // ---------------------------------------------------------------------------
 // Environment configuration
@@ -49,6 +48,8 @@ export interface TransactionLifecycleUpdate {
 export interface TransactionLifecycleOptions {
   onStatus?: (update: TransactionLifecycleUpdate) => void;
   timeoutMs?: number;
+  /** Soroban contract method name for observability metrics. */
+  operation?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,9 +79,16 @@ async function buildAndSubmitTransaction(
   options?: TransactionLifecycleOptions,
 ): Promise<StellarSdk.rpc.Api.GetSuccessfulTransactionResponse> {
   const server = getServer();
+  const operation = options?.operation ?? "contract_invoke";
 
   options?.onStatus?.({ phase: "building" });
-  const sourceAccount = await server.getAccount(sourcePublicKey);
+  let sourceAccount;
+  try {
+    sourceAccount = await server.getAccount(sourcePublicKey);
+  } catch (error) {
+    recordObservabilityFailure(classifyRpcFailure(error, "getAccount"), { operation });
+    throw error;
+  }
 
   const txBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -90,10 +98,18 @@ async function buildAndSubmitTransaction(
   txBuilder.setTimeout(300);
 
   const builtTx = txBuilder.build();
-  const simulated = await server.simulateTransaction(builtTx);
+  let simulated;
+  try {
+    simulated = await server.simulateTransaction(builtTx);
+  } catch (error) {
+    recordObservabilityFailure(classifyRpcFailure(error, "simulateTransaction"), { operation });
+    throw error;
+  }
 
   if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
-    throw new Error(simulated.error ?? "Transaction simulation failed.");
+    const simulationError = new Error(simulated.error ?? "Transaction simulation failed.");
+    recordObservabilityFailure(classifySimulationFailure(simulationError, operation), { operation });
+    throw simulationError;
   }
 
   const preparedTx = StellarSdk.rpc
@@ -114,10 +130,20 @@ async function buildAndSubmitTransaction(
   ) as StellarSdk.Transaction;
 
   options?.onStatus?.({ phase: "submitting" });
-  const submissionResult = await server.sendTransaction(signedTx);
+  let submissionResult;
+  try {
+    submissionResult = await server.sendTransaction(signedTx);
+  } catch (error) {
+    recordObservabilityFailure(classifyRpcFailure(error, "sendTransaction"), { operation });
+    throw error;
+  }
 
   if (submissionResult.status === "ERROR") {
     options?.onStatus?.({ phase: "failed", rpcStatus: submissionResult.status });
+    recordObservabilityKind("submission_failure", "Transaction submission failed.", {
+      operation,
+      rpcStatus: submissionResult.status,
+    });
     throw new Error("Transaction submission failed.");
   }
 
@@ -132,19 +158,38 @@ async function buildAndSubmitTransaction(
   while (getResult.status === "NOT_FOUND" || (getResult.status as any) === "PENDING") {
     if (Date.now() - startedAt >= timeoutMs) {
       options?.onStatus?.({ phase: "failed", txHash, rpcStatus: getResult.status });
+      recordObservabilityKind("confirmation_timeout", "Transaction confirmation timed out.", {
+        operation,
+        rpcStatus: getResult.status,
+        txHash,
+      });
       throw new Error("Transaction confirmation timed out.");
     }
     await sleep(pollDelay);
     pollDelay = Math.min(Math.round(pollDelay * 1.5), 6_000);
-    getResult = await server.getTransaction(txHash);
+    try {
+      getResult = await server.getTransaction(txHash);
+    } catch (error) {
+      recordObservabilityFailure(classifyRpcFailure(error, "getTransaction"), {
+        operation,
+        txHash,
+      });
+      throw error;
+    }
   }
 
   if (getResult.status === "FAILED") {
     options?.onStatus?.({ phase: "failed", txHash, rpcStatus: getResult.status });
+    recordObservabilityKind("confirmation_failed", "Transaction failed on-chain.", {
+      operation,
+      rpcStatus: getResult.status,
+      txHash,
+    });
     throw new Error("Transaction failed on-chain.");
   }
 
   options?.onStatus?.({ phase: "confirmed", txHash, rpcStatus: getResult.status });
+  recordObservabilitySuccess(operation, txHash);
   return getResult as StellarSdk.rpc.Api.GetSuccessfulTransactionResponse;
 }
 
@@ -175,10 +220,22 @@ async function invokeViewMethod(
   txBuilder.setTimeout(30);
 
   const tx = txBuilder.build();
-  const simulated = await server.simulateTransaction(tx);
+  let simulated;
+  try {
+    simulated = await server.simulateTransaction(tx);
+  } catch (error) {
+    recordObservabilityFailure(classifyRpcFailure(error, `simulateTransaction:${method}`), {
+      operation: method,
+    });
+    throw error;
+  }
 
   if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
-    throw new Error(simulated.error ?? `View call ${method} failed.`);
+    const simulationError = new Error(simulated.error ?? `View call ${method} failed.`);
+    recordObservabilityFailure(classifySimulationFailure(simulationError, method), {
+      operation: method,
+    });
+    throw simulationError;
   }
 
   const successSim = simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse;
@@ -489,7 +546,7 @@ export async function init(
     StellarSdk.nativeToScVal(platformFee, { type: "u32" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(admin, op, options);
+    const txResult = await buildAndSubmitTransaction(admin, op, { ...options, operation: "init" });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));
@@ -552,7 +609,7 @@ export async function createCampaign(
     StellarSdk.nativeToScVal(revenueSharePercentage, { type: "u32" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(creator, op, options);
+    const txResult = await buildAndSubmitTransaction(creator, op, { ...options, operation: "create_campaign" });
     return txResult.txHash;
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -580,7 +637,7 @@ export async function contribute(
     StellarSdk.nativeToScVal(amount, { type: "i128" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(contributor, op, options);
+    const txResult = await buildAndSubmitTransaction(contributor, op, { ...options, operation: "contribute" });
     appendWalletTransaction({
       walletAddress: contributor,
       campaignId,
@@ -610,7 +667,7 @@ export async function withdrawFunds(
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call("withdraw_funds", StellarSdk.nativeToScVal(campaignId, { type: "u32" }));
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "withdraw_funds" });
     return txResult.txHash;
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -641,7 +698,7 @@ export async function cancelCampaign(
     StellarSdk.nativeToScVal(campaignId, { type: "u32" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "cancel_campaign" });
     return txResult.txHash;
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -674,7 +731,7 @@ export async function claimRefund(
     new StellarSdk.Address(contributor).toScVal(),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(contributor, op, options);
+    const txResult = await buildAndSubmitTransaction(contributor, op, { ...options, operation: "claim_refund" });
     appendWalletTransaction({
       walletAddress: contributor,
       campaignId,
@@ -710,7 +767,7 @@ export async function depositRevenue(
     StellarSdk.nativeToScVal(amount, { type: "i128" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "deposit_revenue" });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));
@@ -731,7 +788,7 @@ export async function claimRevenue(
     new StellarSdk.Address(contributor).toScVal(),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(contributor, op, options);
+    const txResult = await buildAndSubmitTransaction(contributor, op, { ...options, operation: "claim_revenue" });
     appendWalletTransaction({
       walletAddress: contributor,
       campaignId,
@@ -756,7 +813,7 @@ export async function verifyCampaign(
     StellarSdk.nativeToScVal(campaignId, { type: "u32" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "verify_campaign" });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));
@@ -780,7 +837,7 @@ export async function updatePlatformFee(
   );
 
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "update_platform_fee" });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));
@@ -802,7 +859,7 @@ export async function updateAdmin(
   const op = contract.call("update_admin", new StellarSdk.Address(newAdmin).toScVal());
 
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "update_admin" });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));
@@ -899,7 +956,7 @@ export async function voteOnCampaign(
     StellarSdk.nativeToScVal(approve, { type: "bool" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(voter, op, options);
+    const txResult = await buildAndSubmitTransaction(voter, op, { ...options, operation: "vote_on_campaign" });
     appendWalletTransaction({
       walletAddress: voter,
       campaignId,
@@ -936,7 +993,10 @@ export async function verifyCampaignWithVotes(
     StellarSdk.nativeToScVal(campaignId, { type: "u32" }),
   );
   try {
-    const txResult = await buildAndSubmitTransaction(callerAddress, op, options);
+    const txResult = await buildAndSubmitTransaction(callerAddress, op, {
+      ...options,
+      operation: "verify_campaign_with_votes",
+    });
     return txResult.txHash;
   } catch (err) {
     throw new Error(parseContractError(err));

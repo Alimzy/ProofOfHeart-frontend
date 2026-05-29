@@ -1,46 +1,31 @@
-jest.mock("@stellar/stellar-sdk", () => {
-  const nativeToScVal = (value: unknown, opts: { type: string }) => {
-    const encoded =
-      opts.type === "symbol"
-        ? `sym:${String(value)}`
-        : opts.type === "u32"
-          ? `u32:${String(value)}`
-          : `i128:${String(value)}`;
-    return {
-      __native: value,
-      __encoded: encoded,
-      toXDR: () => Buffer.from(encoded),
-    };
-  };
+jest.mock('@stellar/stellar-sdk', () => {
+  const nativeToScVal = (value: unknown, opts: { type: string }) => ({
+    __native: value,
+    toXDR: () => Buffer.from(`${opts.type}:${String(value)}`),
+  });
 
   return {
     nativeToScVal,
     scValToNative: (value: { __native?: unknown }) => value.__native,
-    scValToBigInt: (value: { __bigint?: bigint }) => value.__bigint ?? BigInt(0),
-    rpc: {
-      Server: jest.fn(),
-    },
+    rpc: { Server: jest.fn() },
   };
 });
 
-import * as StellarSdk from "@stellar/stellar-sdk";
+import * as StellarSdk from '@stellar/stellar-sdk';
 import {
-  contributionMadeTopicFilter,
-  isContributionMadeEvent,
-  parseContributionAmount,
+  isVoteCastEvent,
+  parseVoteCastApprove,
   scValToTopicSegment,
-  sumContributionAmounts,
-} from "@/lib/sorobanEvents";
+  voteCastTopicFilter,
+} from '@/lib/sorobanEvents';
 
-describe("sorobanEvents", () => {
-  it("builds contribution_made topic filter segments for a campaign", () => {
-    const topics = contributionMadeTopicFilter(42);
-    expect(topics).toHaveLength(1);
-    expect(topics[0]).toHaveLength(3);
-    expect(topics[0][2]).toBe("*");
+describe('sorobanEvents vote cast', () => {
+  it('builds campaign_vote_cast topic filter segments', () => {
+    const topics = voteCastTopicFilter(7);
+    expect(topics[0][2]).toBe('*');
 
-    const symbol = StellarSdk.nativeToScVal("contribution_made", { type: "symbol" });
-    const campaign = StellarSdk.nativeToScVal(42, { type: "u32" });
+    const symbol = StellarSdk.nativeToScVal('campaign_vote_cast', { type: 'symbol' });
+    const campaign = StellarSdk.nativeToScVal(7, { type: 'u32' });
     expect(topics[0][0]).toBe(scValToTopicSegment(symbol as never));
     expect(topics[0][1]).toBe(scValToTopicSegment(campaign as never));
   });
