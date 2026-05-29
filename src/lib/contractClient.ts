@@ -155,7 +155,7 @@ async function buildAndSubmitTransaction(
   let pollDelay = 1_000;
   let getResult = await server.getTransaction(txHash);
 
-  while (getResult.status === "NOT_FOUND" || getResult.status === "PENDING") {
+  while (getResult.status === "NOT_FOUND" || (getResult.status as any) === "PENDING") {
     if (Date.now() - startedAt >= timeoutMs) {
       options?.onStatus?.({ phase: "failed", txHash, rpcStatus: getResult.status });
       recordObservabilityKind("confirmation_timeout", "Transaction confirmation timed out.", {
@@ -273,7 +273,15 @@ function decodeCampaign(val: StellarSdk.xdr.ScVal): Campaign {
     deadline,
     amount_raised,
     is_active,
-    status: deriveStatus({ is_cancelled, is_verified, is_active, funds_withdrawn, deadline, amount_raised, funding_goal }),
+    status: deriveStatus({
+      is_cancelled,
+      is_verified,
+      is_active,
+      funds_withdrawn,
+      deadline,
+      amount_raised,
+      funding_goal,
+    }),
     created_at: Number(fields["created_at"].u64()),
     funds_withdrawn,
     is_cancelled,
@@ -527,6 +535,8 @@ export async function init(
   platformFee: number,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(admin);
+  validateStellarAddress(token);
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_init", options);
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call(
@@ -555,6 +565,13 @@ export async function createCampaign(
   tags: string[],
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(creator);
+  validateFundingGoal(fundingGoal);
+  validateDuration(durationDays);
+  if (hasRevenueSharing) {
+    validateRevenueShare(revenueSharePercentage);
+  }
+
   if (USE_MOCKS) {
     const txHash = emitMockLifecycle("mock_tx_create_campaign", options);
     MOCK_CAMPAIGNS.push(
@@ -595,6 +612,9 @@ export async function createCampaign(
     const txResult = await buildAndSubmitTransaction(creator, op, { ...options, operation: "create_campaign" });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError("create_campaign", 0, error, errorCode ? String(errorCode) : undefined);
     throw new Error(parseContractError(err));
   }
 }
@@ -605,6 +625,9 @@ export async function contribute(
   amount: bigint,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(contributor);
+  validateAmount(amount);
+
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_contribute", options);
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call(
@@ -623,6 +646,14 @@ export async function contribute(
     });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError(
+      "contribute",
+      campaignId,
+      error,
+      errorCode ? String(errorCode) : undefined,
+    );
     throw new Error(parseContractError(err));
   }
 }
@@ -639,6 +670,14 @@ export async function withdrawFunds(
     const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "withdraw_funds" });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError(
+      "withdraw_funds",
+      campaignId,
+      error,
+      errorCode ? String(errorCode) : undefined,
+    );
     throw new Error(parseContractError(err));
   }
 }
@@ -662,6 +701,14 @@ export async function cancelCampaign(
     const txResult = await buildAndSubmitTransaction(callerAddress, op, { ...options, operation: "cancel_campaign" });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError(
+      "cancel_campaign",
+      campaignId,
+      error,
+      errorCode ? String(errorCode) : undefined,
+    );
     throw new Error(parseContractError(err));
   }
 }
@@ -675,6 +722,7 @@ export async function claimRefund(
   contributor: string,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(contributor);
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_claim_refund", options);
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call(
@@ -692,6 +740,14 @@ export async function claimRefund(
     });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError(
+      "claim_refund",
+      campaignId,
+      error,
+      errorCode ? String(errorCode) : undefined,
+    );
     throw new Error(parseContractError(err));
   }
 }
@@ -701,6 +757,7 @@ export async function depositRevenue(
   amount: bigint,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateAmount(amount);
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_deposit_revenue", options);
   const { address: callerAddress } = await getAddress();
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
@@ -722,6 +779,7 @@ export async function claimRevenue(
   contributor: string,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(contributor);
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_claim_revenue", options);
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call(
@@ -793,6 +851,7 @@ export async function updateAdmin(
   newAdmin: string,
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
+  validateStellarAddress(newAdmin);
   if (USE_MOCKS) return emitMockLifecycle("mock_tx_update_admin", options);
 
   const { address: callerAddress } = await getAddress();
@@ -884,7 +943,10 @@ export async function voteOnCampaign(
   options?: TransactionLifecycleOptions,
 ): Promise<string> {
   if (USE_MOCKS) {
-    return emitMockLifecycle(`mock_tx_vote_${campaignId}_${approve ? "approve" : "reject"}`, options);
+    return emitMockLifecycle(
+      `mock_tx_vote_${campaignId}_${approve ? "approve" : "reject"}`,
+      options,
+    );
   }
   const contract = new StellarSdk.Contract(CONTRACT_ADDRESS);
   const op = contract.call(
@@ -903,6 +965,14 @@ export async function voteOnCampaign(
     });
     return txResult.txHash;
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const errorCode = getContractErrorCode(err);
+    captureTransactionError(
+      "vote_on_campaign",
+      campaignId,
+      error,
+      errorCode ? String(errorCode) : undefined,
+    );
     throw new Error(parseContractError(err));
   }
 }

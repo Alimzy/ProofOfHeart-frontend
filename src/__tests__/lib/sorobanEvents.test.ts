@@ -30,18 +30,27 @@ describe('sorobanEvents vote cast', () => {
     expect(topics[0][1]).toBe(scValToTopicSegment(campaign as never));
   });
 
-  it('identifies vote cast events and parses approve flag', () => {
+  it("identifies contribution_made events for the matching campaign", () => {
     const event = {
-      id: 'evt-vote-1',
+      id: "evt-1",
       topic: [
-        StellarSdk.nativeToScVal('campaign_vote_cast', { type: 'symbol' }),
-        StellarSdk.nativeToScVal(3, { type: 'u32' }),
+        StellarSdk.nativeToScVal("contribution_made", { type: "symbol" }),
+        StellarSdk.nativeToScVal(7, { type: "u32" }),
+        StellarSdk.nativeToScVal("GABC", { type: "address" }),
       ],
-      value: { __native: true },
-    } as Parameters<typeof isVoteCastEvent>[0];
+      value: { __bigint: BigInt(1_000_000) },
+    } as unknown as Parameters<typeof isContributionMadeEvent>[0];
 
-    expect(isVoteCastEvent(event, 3)).toBe(true);
-    expect(isVoteCastEvent(event, 4)).toBe(false);
-    expect(parseVoteCastApprove(event)).toBe(true);
+    expect(isContributionMadeEvent(event, 7)).toBe(true);
+    expect(isContributionMadeEvent(event, 8)).toBe(false);
+  });
+
+  it("parses contribution amounts and sums events", () => {
+    const event = {
+      value: { __bigint: BigInt(2_500_000) },
+    } as unknown as Parameters<typeof parseContributionAmount>[0];
+
+    expect(parseContributionAmount(event)).toBe(BigInt(2_500_000));
+    expect(sumContributionAmounts([event, event])).toBe(BigInt(5_000_000));
   });
 });

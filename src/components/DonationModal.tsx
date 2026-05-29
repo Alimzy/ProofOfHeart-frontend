@@ -2,14 +2,22 @@
 
 import { useState, useEffect, useRef } from "react";
 import { contribute } from "../lib/contractClient";
-import { Campaign, xlmToStroops, stroopsToXlm } from "../types";
+import { Campaign, xlmToStroops, formatStroopsAsXlm, calculateFundingPercentage, basisPointsToPercentage } from "../types";
 import { useToast } from "./ToastProvider";
 import { useWallet } from "./WalletContext";
+import { usePlatformFee } from "../hooks/usePlatformFee";
 import { parseContractError } from "../utils/contractErrors";
 import { type TransactionLifecyclePhase } from "../lib/contractClient";
-
-const EXPLORER_BASE =
-  process.env.NEXT_PUBLIC_EXPLORER_URL ?? "https://stellar.expert/explorer/testnet/tx";
+import { validateContributorNotCreator } from "../utils/validators";
+import { explorerTxUrl } from "../utils/explorer";
+import {
+  trackClickContribute,
+  trackEnterAmount,
+  trackReviewContribution,
+  trackSignTransaction,
+  trackContributionConfirmed,
+  trackContributionError,
+} from "../lib/analytics";
 
 interface DonationModalProps {
   campaign: Campaign;
@@ -22,6 +30,7 @@ type Step = "input" | "pending" | "confirmed";
 export default function DonationModal({ campaign, onClose, onSuccess }: DonationModalProps) {
   const { publicKey } = useWallet();
   const { showError } = useToast();
+  const { platformFeeBps } = usePlatformFee();
 
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<Step>("input");
@@ -36,11 +45,15 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
   useEffect(() => {
     previousFocusRef.current = document.activeElement as HTMLElement;
     document.body.style.overflow = "hidden";
+
+    // Track modal open
+    trackClickContribute(campaign.id);
+
     return () => {
       document.body.style.overflow = "";
       previousFocusRef.current?.focus();
     };
-  }, []);
+  }, [campaign.id]);
 
   // ESC to close + focus trap
   useEffect(() => {
@@ -75,8 +88,10 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [step, onClose]);
 
-  const goal = stroopsToXlm(campaign.funding_goal);
-  const raised = stroopsToXlm(campaign.amount_raised);
+  const goalStr = formatStroopsAsXlm(campaign.funding_goal, { maximumFractionDigits: 7 });
+  const raisedStr = formatStroopsAsXlm(campaign.amount_raised, { maximumFractionDigits: 7 });
+  const goal = parseFloat(goalStr);
+  const raised = parseFloat(raisedStr);
 
   // Robust validation for amount input
   const validateAmount = (value: string): { valid: boolean; error?: string; amount?: number } => {
@@ -133,23 +148,43 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
   const handleDonate = async () => {
     if (!publicKey) return;
 
-    const validation = validateAmount(amount);
-    if (!validation.valid) {
-      setError(validation.error || "Please enter a valid amount.");
+    try {
+      validateContributorNotCreator(publicKey, campaign.creator);
+    } catch (err) {
+      const msg = parseContractError(err);
+      setError(msg);
+      trackContributionError(campaign.id, "contributor_is_creator");
       return;
     }
 
-    const amountToSend = validation.amount!;
+    const validation = validateAmount(amount);
+    if (!validation.valid) {
+      setError(validation.error || "Please enter a valid amount.");
+      trackContributionError(campaign.id, "invalid_amount");
+      return;
+    }
+
+    const amountToSend = amount;
     setError(null);
     setStep("pending");
     setTxPhase(null);
+
+    // Track review step
+    trackReviewContribution(campaign.id);
+
     try {
       const stroops = xlmToStroops(amountToSend);
       const hash = await contribute(campaign.id, publicKey, stroops, {
-        onStatus: ({ phase }) => setTxPhase(phase),
+        onStatus: ({ phase }) => {
+          setTxPhase(phase);
+          if (phase === "signing") {
+            trackSignTransaction(campaign.id);
+          }
+        },
       });
       setTxHash(hash);
       setStep("confirmed");
+      trackContributionConfirmed(campaign.id);
       onSuccess();
     } catch (err) {
       const msg = parseContractError(err);
@@ -157,6 +192,14 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
       setError(msg);
       setStep("input");
       setTxPhase(null);
+
+      // Track error with generic type
+      const errorType = msg.toLowerCase().includes("rejected")
+        ? "user_rejected"
+        : msg.toLowerCase().includes("insufficient")
+          ? "insufficient_funds"
+          : "transaction_failed";
+      trackContributionError(campaign.id, errorType);
     }
   };
 
@@ -238,6 +281,10 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
                     onChange={(e) => {
                       setAmount(e.target.value);
                       setError(null);
+                      // Track when user enters an amount
+                      if (e.target.value && parseFloat(e.target.value) > 0) {
+                        trackEnterAmount(campaign.id);
+                      }
                     }}
                     placeholder="e.g. 10"
                     className="w-full px-4 py-3 pr-16 rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
@@ -261,18 +308,17 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
                 </div>
               )}
 
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                A platform fee of {basisPointsToPercentage(platformFeeBps)} is deducted from funds
+                when withdrawn by the creator. Your full donation goes toward the campaign total.
+              </p>
+
               <button
                 onClick={handleDonate}
                 disabled={!publicKey || !validation.valid}
                 className="w-full py-3 bg-linear-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200"
               >
-                {step === "pending"
-                  ? txPhase === "signing"
-                    ? "Signing..."
-                    : txPhase === "confirming"
-                      ? "Confirming..."
-                      : "Processing..."
-                  : `Donate ${amountNum > 0 ? `${amountNum} XLM` : ""}`}
+                {`Donate ${amountNum > 0 ? `${amountNum} XLM` : ""}`}
               </button>
             </>
           )}
@@ -307,7 +353,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
               </div>
               {txHash && (
                 <a
-                  href={`${EXPLORER_BASE}/${txHash}`}
+                  href={explorerTxUrl(txHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
