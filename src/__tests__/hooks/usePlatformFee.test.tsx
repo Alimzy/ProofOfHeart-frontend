@@ -1,0 +1,38 @@
+import { renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { usePlatformFee, DEFAULT_PLATFORM_FEE_BPS } from "@/hooks/usePlatformFee";
+
+jest.mock("@/lib/contractClient", () => ({
+  getPlatformFee: jest.fn(),
+}));
+
+import { getPlatformFee } from "@/lib/contractClient";
+
+const mockGetPlatformFee = getPlatformFee as jest.MockedFunction<typeof getPlatformFee>;
+
+function createWrapper() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
+}
+
+describe("usePlatformFee", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns on-chain fee when getPlatformFee succeeds", async () => {
+    mockGetPlatformFee.mockResolvedValue(250);
+
+    const { result } = renderHook(() => usePlatformFee(), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.platformFeeBps).toBe(250);
+    expect(result.current.isFallback).toBe(false);
+  });
+});
