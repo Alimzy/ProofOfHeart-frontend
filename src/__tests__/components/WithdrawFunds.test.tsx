@@ -71,4 +71,19 @@ describe("WithdrawFunds", () => {
     expect(screen.getByText("-0.3 XLM")).toBeInTheDocument();
     expect(screen.getByText("9.7 XLM")).toBeInTheDocument();
   });
+
+  it("blocks withdrawal when funding goal has not been reached", () => {
+    render(
+      <WithdrawFunds
+        campaign={makeCampaign({
+          amount_raised: BigInt(50_000_000),
+          funding_goal: BigInt(100_000_000),
+        })}
+        userWalletAddress={CREATOR}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Withdraw Funds" })).toBeDisabled();
+    expect(screen.getByText("Funding goal has not been reached")).toBeInTheDocument();
+  });
 });
