@@ -62,6 +62,7 @@
     "transferAdmin": "Transfer Admin",
     "newAdminAddress": "New Admin Address",
     "adminConsole": "Admin Console",
+    "contractAdmin": "Contract Admin",
     "responsibility": "Admin Responsibility",
     "responsibilityText": "As an administrator, you are responsible for ensuring all causes meet our community guidelines. Verification updates the status on-chain, signaling trust to potential contributors. Rejection will cancel the campaign and prevent further contributions.",
     "confirmTransferTitle": "Transfer Admin Access?",
