@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useCampaign } from "@/hooks/useCampaign";
@@ -89,5 +89,22 @@ describe("useCampaign", () => {
     expect(result.current.campaign).toBeNull();
     expect(result.current.notFound).toBe(true);
     expect(result.current.error).toBeNull();
+  });
+
+  it("refetch re-queries and updates campaign state", async () => {
+    mockGetCampaign
+      .mockResolvedValueOnce(makeCampaign({ title: "First fetch" }))
+      .mockResolvedValueOnce(makeCampaign({ title: "After refetch" }));
+
+    const { result } = renderHook(() => useCampaign(1), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.campaign?.title).toBe("First fetch"));
+
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => expect(result.current.campaign?.title).toBe("After refetch"));
+    expect(mockGetCampaign).toHaveBeenCalledTimes(2);
   });
 });
