@@ -55,4 +55,20 @@ describe("WithdrawFunds", () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("shows fee and net breakdown when goal is reached", () => {
+    render(
+      <WithdrawFunds
+        campaign={makeCampaign({ amount_raised: BigInt(100_000_000) })}
+        userWalletAddress={CREATOR}
+        platformFeeBps={300}
+      />,
+    );
+
+    expect(screen.getByText("Total raised")).toBeInTheDocument();
+    expect(screen.getByText("Platform fee (3%)")).toBeInTheDocument();
+    expect(screen.getByText("You will receive")).toBeInTheDocument();
+    expect(screen.getByText("-0.3 XLM")).toBeInTheDocument();
+    expect(screen.getByText("9.7 XLM")).toBeInTheDocument();
+  });
 });
