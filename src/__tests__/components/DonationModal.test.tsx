@@ -104,4 +104,21 @@ describe("DonationModal", () => {
       screen.getByText(/A platform fee of 3% is deducted from funds when withdrawn by the creator/),
     ).toBeInTheDocument();
   });
+
+  it("calls contribute with amount converted to stroops", async () => {
+    mockContribute.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve("mock-tx-hash"), 50)),
+    );
+
+    render(<DonationModal {...defaultProps} />);
+
+    fireEvent.change(screen.getByLabelText("Amount (XLM)"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: /Donate 10 XLM/ }));
+
+    await waitFor(() =>
+      expect(mockContribute).toHaveBeenCalledWith(1, CONTRIBUTOR, BigInt(100_000_000), {
+        onStatus: expect.any(Function),
+      }),
+    );
+  });
 });
