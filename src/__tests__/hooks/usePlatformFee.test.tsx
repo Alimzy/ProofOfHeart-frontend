@@ -46,4 +46,14 @@ describe("usePlatformFee", () => {
     expect(result.current.platformFeeBps).toBe(DEFAULT_PLATFORM_FEE_BPS);
     expect(result.current.isFallback).toBe(true);
   });
+
+  it("marks isFallback true while data is still undefined after error", async () => {
+    mockGetPlatformFee.mockRejectedValue(new Error("rpc down"));
+
+    const { result } = renderHook(() => usePlatformFee(), { wrapper: createWrapper() });
+
+    expect(result.current.platformFeeBps).toBe(DEFAULT_PLATFORM_FEE_BPS);
+
+    await waitFor(() => expect(result.current.isFallback).toBe(true));
+  });
 });
