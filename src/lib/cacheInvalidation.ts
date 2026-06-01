@@ -4,8 +4,8 @@
  */
 
 import * as StellarSdk from '@stellar/stellar-sdk';
-import { rpc } from '@stellar/stellar-sdk';
-import { QueryClient } from '@tanstack/react-query';
+
+type Api = StellarSdk.rpc.Api.EventResponse;
 
 // Event topic names from the contract
 const CONTRIBUTION_MADE_TOPIC = 'contribution_made';
@@ -20,7 +20,7 @@ const VERIFY_CAMPAIGN_TOPIC = 'verify_campaign';
  * Extracts the campaign id from a Soroban event.
  * Assumes campaign id is the second topic in the event.
  */
-function extractCampaignId(event: rpc.Api.EventResponse): number | null {
+function extractCampaignId(event: Api): number | null {
   if (event.topic.length < 2) return null;
   try {
     return StellarSdk.scValToNative(event.topic[1]) as number;
@@ -33,7 +33,7 @@ function extractCampaignId(event: rpc.Api.EventResponse): number | null {
  * Extracts the contributor address from a Soroban event.
  * Assumes contributor address is the third topic in the event.
  */
-function extractContributorAddress(event: rpc.Api.EventResponse): string | null {
+function extractContributorAddress(event: Api): string | null {
   if (event.topic.length < 3) return null;
   try {
     const address = StellarSdk.scValToNative(event.topic[2]);
@@ -104,7 +104,7 @@ function invalidateCampaignsList(queryClient: QueryClient): void {
  */
 export function invalidateQueriesForEvent(
   queryClient: QueryClient,
-  event: rpc.Api.EventResponse,
+  event: Api,
   currentWalletAddress: string | null,
 ): void {
   const campaignId = extractCampaignId(event);
@@ -213,7 +213,7 @@ export function invalidateQueriesForEvent(
  */
 export function invalidateQueriesForEvents(
   queryClient: QueryClient,
-  events: rpc.Api.EventResponse[],
+  events: Api[],
   currentWalletAddress: string | null,
 ): void {
   // Use a Set to avoid duplicate invalidations for the same campaign
