@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { contribute } from "../lib/contractClient";
+import { getEstimatedContributeNetworkFeeXlm } from "../lib/networkFee";
 import { Campaign, xlmToStroops, formatStroopsAsXlm, basisPointsToPercentage } from "../types";
 import { useToast } from "./ToastProvider";
 import { useWallet } from "./WalletContext";
@@ -37,11 +38,11 @@ type DonationValidationKey =
   | "maxDecimalPlaces";
 
 export default function DonationModal({ campaign, onClose, onSuccess }: DonationModalProps) {
-  const t = useTranslations("DonationModal");
-  const tContractErrors = useTranslations("ContractErrors");
+  const t = useTranslations("Donation");
   const { publicKey } = useWallet();
   const { showError } = useToast();
   const { platformFeeBps } = usePlatformFee();
+  const estimatedNetworkFeeXlm = useMemo(() => getEstimatedContributeNetworkFeeXlm(), []);
 
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<Step>("input");
@@ -104,10 +105,9 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [step, onClose]);
 
-  const goalStr = formatStroopsAsXlm(campaign.funding_goal, { maximumFractionDigits: 7 });
-  const raisedStr = formatStroopsAsXlm(campaign.amount_raised, { maximumFractionDigits: 7 });
-  const goal = parseFloat(goalStr);
-  const raised = parseFloat(raisedStr);
+  const locale = useLocale();
+  const goal = Number(stroopsToXlm(campaign.funding_goal));
+  const raised = Number(stroopsToXlm(campaign.amount_raised));
 
   const validateAmount = (
     value: string,
@@ -152,6 +152,8 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
   const newRaised = raised + amountNum;
   const newPct = goal > 0 ? Math.min(100, Math.round((newRaised / goal) * 100)) : 0;
   const currentPct = goal > 0 ? Math.min(100, Math.round((raised / goal) * 100)) : 0;
+  const totalWalletCost =
+    amountNum > 0 ? amountNum + estimatedNetworkFeeXlm : estimatedNetworkFeeXlm;
 
   const handleDonate = async () => {
     if (!publicKey) return;
@@ -233,7 +235,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
             id="donation-modal-title"
             className="text-lg font-semibold text-zinc-900 dark:text-zinc-50"
           >
-            {step === "confirmed" ? t("titleConfirmed") : t("titleFund")}
+            {step === "confirmed" ? t("confirmedTitle") : t("title")}
           </h2>
           {step !== "pending" && (
             <button
@@ -253,8 +255,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
             <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mb-1">
               <span>{t("percentFunded", { percent: currentPct })}</span>
               <span>
-                {raised.toLocaleString(undefined, { maximumFractionDigits: 2 })} /{" "}
-                {goal.toLocaleString(undefined, { maximumFractionDigits: 2 })} XLM
+                {formatAmount(campaign.amount_raised, locale, { maximumFractionDigits: 2 })} / {formatAmount(campaign.funding_goal, locale, { maximumFractionDigits: 2 })} XLM
               </span>
             </div>
             <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2">
@@ -303,24 +304,51 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
                   {t("afterDonation", { percent: newPct })}
                   {newRaised >= goal && (
                     <span className="ml-2 font-semibold text-green-600 dark:text-green-400">
-                      {t("goalReached")}
+                      🎉 {t("goalReached")}
                     </span>
                   )}
                 </div>
               )}
 
+              {amountNum > 0 && (
+                <dl className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3 text-sm space-y-2">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-zinc-600 dark:text-zinc-400">{t("contributionLine")}</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-50 tabular-nums">
+                      {amountNum.toLocaleString(undefined, { maximumFractionDigits: 7 })} XLM
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-zinc-600 dark:text-zinc-400">{t("networkFeeLine")}</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-50 tabular-nums">
+                      {estimatedNetworkFeeXlm.toLocaleString(undefined, {
+                        maximumFractionDigits: 7,
+                      })}{" "}
+                      XLM
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 border-t border-zinc-200 dark:border-zinc-600 pt-2">
+                    <dt className="font-semibold text-zinc-900 dark:text-zinc-50">{t("totalLine")}</dt>
+                    <dd className="font-semibold text-zinc-900 dark:text-zinc-50 tabular-nums">
+                      {totalWalletCost.toLocaleString(undefined, { maximumFractionDigits: 7 })} XLM
+                    </dd>
+                  </div>
+                </dl>
+              )}
+
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 {t("platformFeeNote", { feePercent: basisPointsToPercentage(platformFeeBps) })}
               </p>
+              {amountNum > 0 && (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("networkFeeNote")}</p>
+              )}
 
               <button
                 onClick={handleDonate}
                 disabled={!publicKey || !validation.valid}
                 className="w-full py-3 bg-linear-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200"
               >
-                {amountNum > 0
-                  ? t("donateWithAmount", { amount: amountNum })
-                  : t("donate")}
+                {amountNum > 0 ? t("donateAmount", { amount: amountNum }) : t("donate")}
               </button>
             </>
           )}
@@ -330,10 +358,10 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
               <div className="w-12 h-12 rounded-full border-4 border-blue-500 border-t-transparent motion-safe:animate-spin" />
               <p className="text-zinc-600 dark:text-zinc-400 text-sm text-center">
                 {txPhase === "signing"
-                  ? t("waitingForSignature")
+                  ? t("waitingSignature")
                   : txPhase === "confirming"
-                    ? t("waitingForConfirmation")
-                    : t("submittingTransaction")}
+                    ? t("waitingConfirmation")
+                    : t("submitting")}
               </p>
             </div>
           )}
@@ -356,7 +384,7 @@ export default function DonationModal({ campaign, onClose, onSuccess }: Donation
                   rel="noopener noreferrer"
                   className="text-sm text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
                 >
-                  {t("viewOnExplorer")}
+                  {t("viewExplorer")}
                 </a>
               )}
               <button
