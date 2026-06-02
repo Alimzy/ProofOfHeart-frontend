@@ -45,6 +45,9 @@
     "loading": "Cargando historial de contribuciones...",
     "empty": "Aún no hay contribuciones para esta wallet.",
     "contributed": "Contribuyó {amount} XLM",
+    "statusActive": "Activa",
+    "statusRefundable": "Reembolsable",
+    "statusRevenueClaimable": "Ingresos reclamables",
     "openCampaign": "Abrir Campaña",
     "claimRefund": "Reclamar Reembolso",
     "claimRevenue": "Reclamar Ingresos ({amount} XLM)",
@@ -399,6 +402,7 @@
     "votedDownvote": "Votaste para rechazar esta causa",
     "verifyWithVotes": "✓ Verificar Campaña con Votos",
     "verifying": "Verificando..."
+  },
   "Observability": {
     "loading": "Cargando métricas de observabilidad…",
     "metricsRequestFailed": "Error al solicitar métricas ({status})",
