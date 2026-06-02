@@ -344,7 +344,7 @@ function CausesContent() {
               </span>
               <button
                 onClick={() => setTag("")}
-                className="ml-1 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 transition-colors"
+                className="ms-1 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 transition-colors"
                 aria-label="Clear tag filter"
               >
                 ✕
@@ -358,7 +358,7 @@ function CausesContent() {
           {/* Search */}
           <div className="relative">
             <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400"
+              className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -376,12 +376,12 @@ function CausesContent() {
               value={rawSearch}
               onChange={(e) => setRawSearch(e.target.value)}
               placeholder={t("searchPlaceholder")}
-              className="w-full pl-9 pr-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              className="w-full ps-9 pe-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
             {rawSearch && (
               <button
                 onClick={() => setRawSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
               >
                 ✕
               </button>
@@ -445,7 +445,7 @@ function CausesContent() {
             {hasActiveFilters && (
               <button
                 onClick={clearFilters}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto"
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline ms-auto"
               >
                 {t("clearFilters")}
               </button>
