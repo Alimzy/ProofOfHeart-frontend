@@ -1,8 +1,14 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import {
+  hasStoredTheme,
+  resolveInitialTheme,
+  writeStoredTheme,
+  type Theme,
+} from '@/lib/preferences';
 
-export type Theme = 'light' | 'dark';
+export type { Theme };
 
 interface ThemeContextType {
   theme: Theme;
@@ -13,36 +19,33 @@ interface ThemeContextType {
 export const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<Theme>('light');
-  const [mounted, setMounted] = useState(false);
+  const [theme, setThemeState] = useState<Theme>(() => resolveInitialTheme());
+  const [hasExplicitChoice, setHasExplicitChoice] = useState(() => hasStoredTheme());
 
-  useEffect(() => {
-    // Initial theme detection from external storage
-    Promise.resolve().then(() => {
-      const stored = localStorage.getItem('theme') as Theme | null;
-      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const initialTheme = stored || (systemDark ? 'dark' : 'light');
-      
-      if (initialTheme !== 'light') {
-        setTheme(initialTheme);
-      }
-      setMounted(true);
-    });
-  }, []);
+  const useSafeLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 
-  useEffect(() => {
-    if (!mounted) return;
+  useSafeLayoutEffect(() => {
     const root = window.document.documentElement;
     if (theme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('theme', theme);
-  }, [theme, mounted]);
+  }, [theme]);
+
+  useEffect(() => {
+    if (hasExplicitChoice) {
+      writeStoredTheme(theme);
+    }
+  }, [theme, hasExplicitChoice]);
+
+  const setTheme = (nextTheme: Theme) => {
+    setThemeState(nextTheme);
+    setHasExplicitChoice(true);
+  };
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
   return (

@@ -60,7 +60,9 @@ export function useCampaign(id: number): UseCampaignResult {
   });
   const [tick, setTick] = useState(0);
 
-  const refetch = useCallback(() => setTick((t) => t + 1), []);
+  const refetch = useCallback(() => {
+    setTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

@@ -5,7 +5,7 @@ import { useMemo, useState, useCallback } from "react";
 import { claimRefund, claimRevenue } from "../lib/contractClient";
 import { getStellarExplorerTxUrl } from "../lib/stellarExplorer";
 import { useContributions } from "../hooks/useContributions";
-import { CampaignStatus, stroopsToXlm } from "../types";
+import { stroopsToXlmNumber } from "../lib/stellarAmount";
 import { useToast } from "./ToastProvider";
 import { parseContractError } from "../utils/contractErrors";
 
@@ -16,12 +16,12 @@ interface MyContributionsSectionProps {
 type ClaimStatus = "idle" | "pending" | "success" | "failed";
 
 function formatXlmAmount(value: bigint): string {
-  return stroopsToXlm(value).toLocaleString(undefined, {
+  return stroopsToXlmNumber(value).toLocaleString(undefined, {
     maximumFractionDigits: 7,
   });
 }
 
-function getStatusLabel(status: CampaignStatus): string {
+function getStatusLabelKey(status: string): string {
   switch (status) {
     case "active":
       return "Active";
@@ -38,7 +38,7 @@ function getStatusLabel(status: CampaignStatus): string {
   }
 }
 
-function getStatusClasses(status: CampaignStatus): string {
+function getStatusClasses(status: string): string {
   switch (status) {
     case "active":
       return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300";
@@ -54,7 +54,7 @@ function getStatusClasses(status: CampaignStatus): string {
 }
 
 function getActionLabel(
-  action: "contribute" | "claim_refund" | "claim_revenue",
+  action: string,
 ): string {
   switch (action) {
     case "contribute":
@@ -112,7 +112,6 @@ export default function MyContributionsSection({
 
   const handleClaimRefund = async (campaignId: number) => {
     setPendingCampaignId(campaignId);
-    setPendingAction("refund");
     try {
       await claimRefund(campaignId, walletAddress);
       showSuccess("Refund claimed successfully.");
@@ -121,13 +120,11 @@ export default function MyContributionsSection({
       showError(parseContractError(err));
     } finally {
       setPendingCampaignId(null);
-      setPendingAction(null);
     }
   };
 
   const handleClaimRevenue = async (campaignId: number) => {
     setPendingCampaignId(campaignId);
-    setPendingAction("revenue");
     try {
       await claimRevenue(campaignId, walletAddress);
       showSuccess("Revenue claimed successfully.");
@@ -136,7 +133,6 @@ export default function MyContributionsSection({
       showError(parseContractError(err));
     } finally {
       setPendingCampaignId(null);
-      setPendingAction(null);
     }
   };
 
@@ -245,7 +241,7 @@ export default function MyContributionsSection({
         </div>
       ) : contributions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-          No contributions found for this wallet yet.
+          No contributions yet.
         </div>
       ) : (
         <ul className="space-y-3">
@@ -262,6 +258,12 @@ export default function MyContributionsSection({
               (entry) => entry.action === "contribute",
             );
 
+            let displayStatus = "active";
+            if (item.canClaimRefund) displayStatus = "refundable";
+            else if (item.canClaimRevenue) displayStatus = "revenue-claimable";
+            else if (item.campaign.is_verified) displayStatus = "verified";
+            else if (item.campaign.is_cancelled) displayStatus = "cancelled";
+
             return (
               <li
                 key={item.campaign.id}
@@ -277,9 +279,9 @@ export default function MyContributionsSection({
                     </p>
                   </div>
                   <span
-                    className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(item.status)}`}
+                    className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(displayStatus)}`}
                   >
-                    {getStatusLabel(item.status)}
+                    {getStatusLabelKey(displayStatus)}
                   </span>
                 </div>
 
@@ -352,7 +354,8 @@ export default function MyContributionsSection({
                           rel="noopener noreferrer"
                           className="font-mono text-blue-600 hover:underline dark:text-blue-400"
                         >
-                          {entry.txHash.slice(0, 10)}...{entry.txHash.slice(-8)}
+                          {entry.txHash.slice(0, 10)}...
+                          {entry.txHash.slice(-8)}
                         </a>
                       </div>
                     ))

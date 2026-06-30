@@ -1,57 +1,122 @@
-import type { Metadata } from "next";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { WalletProvider } from "@/components/WalletContext";
-import { ToastProvider } from "@/components/ToastProvider";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { notFound } from "next/navigation";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages, getTranslations } from "next-intl/server";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
-import { notFound } from 'next/navigation';
-import { routing } from '@/i18n/routing';
+import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+import { QueryProvider } from "@/components/QueryProvider";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { ToastProvider } from "@/components/ToastProvider";
+import { WalletProvider } from "@/components/WalletContext";
+import { DevMockPanel } from "@/components/DevMockPanel";
+import OnboardingTour from "@/components/OnboardingTour";
+import MaintenanceBypass from "@/components/MaintenanceBypass";
+import { routing } from "@/i18n/routing";
+import { absoluteUrl, buildAlternates } from "@/lib/seo";
+import { getTextDirection } from "@/lib/direction";
+import { getThemeBlockingScript } from "@/lib/preferences";
+import type { Metadata } from "next";
 import "../globals.css";
 
+// #138 — Pre-render locale shells at build time so /en and /es appear in the
+// static-pages section of the build output instead of being dynamic routes.
+export function generateStaticParams() {
+  return routing.locales.map((locale) => ({ locale }));
+}
+
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://proofofheart.xyz"),
   title: "ProofOfHeart",
   description:
     "A decentralized launchpad where the community validates causes and contributions are accounted for on-chain.",
+  alternates: {
+    languages: {
+      en: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://proofofheart.xyz"}/en`,
+      es: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://proofofheart.xyz"}/es`,
+      "x-default": `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://proofofheart.xyz"}/en`,
+    },
+  },
+  openGraph: {
+    type: "website",
+    siteName: "ProofOfHeart",
+    url: absoluteUrl(`/${routing.defaultLocale}`),
+    title: "ProofOfHeart",
+    description:
+      "A decentralized launchpad where the community validates causes and contributions are accounted for on-chain.",
+    images: [
+      {
+        url: "/proof-of-heart-logo.svg",
+        width: 512,
+        height: 512,
+        alt: "ProofOfHeart logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ProofOfHeart",
+    description:
+      "A decentralized launchpad where the community validates causes and contributions are accounted for on-chain.",
+    images: ["/proof-of-heart-logo.svg"],
+  },
 };
 
 export default async function RootLayout({
   children,
-  params
+  params,
 }: Readonly<{
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }>) {
   const { locale } = await params;
-  
+
   // Ensure that the incoming `locale` is valid
-  if (!routing.locales.includes(locale as typeof routing.locales[number])) {
+  if (!routing.locales.includes(locale as (typeof routing.locales)[number])) {
     notFound();
   }
 
   // Providing all messages to the client
   // side is the easiest way to get started
   const messages = await getMessages();
+  const t = await getTranslations("Common");
 
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={locale} dir={getTextDirection(locale)} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: getThemeBlockingScript(),
+          }}
+        />
+      </head>
       <body className="antialiased">
         <NextIntlClientProvider messages={messages} locale={locale}>
-          <ThemeProvider>
-            <ErrorBoundary>
-              <ToastProvider>
-                <WalletProvider>
-                  <div className="flex min-h-screen flex-col">
-                    <Navbar />
-                    <main className="flex-1">{children}</main>
-                    <Footer />
-                  </div>
-                </WalletProvider>
-              </ToastProvider>
-            </ErrorBoundary>
-          </ThemeProvider>
+          <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:z-[100] focus:bg-white focus:px-3 focus:py-1 focus:text-sm focus:shadow"
+          >
+            {t("skipToMainContent")}
+          </a>
+          <QueryProvider>
+            <ThemeProvider>
+              <ErrorBoundary>
+                <ToastProvider>
+                  <WalletProvider>
+                    <div className="flex min-h-screen flex-col">
+                      <Navbar />
+                      <main id="main" className="flex-1">
+                        {children}
+                      </main>
+                      <Footer />
+                      <DevMockPanel />
+                      <OnboardingTour />
+                      <MaintenanceBypass />
+                    </div>
+                  </WalletProvider>
+                </ToastProvider>
+              </ErrorBoundary>
+            </ThemeProvider>
+          </QueryProvider>
         </NextIntlClientProvider>
       </body>
     </html>
