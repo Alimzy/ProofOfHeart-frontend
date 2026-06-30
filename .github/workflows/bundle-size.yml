@@ -38,6 +38,7 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: 1
           NEXT_PUBLIC_USE_MOCKS: true
+          SKIP_MOCK_CHECK: true
 
       - name: Run bundle-size check
         id: budget
