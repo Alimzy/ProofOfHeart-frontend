@@ -1,6 +1,17 @@
 import { signTransaction, getAddress } from "@stellar/freighter-api";
-import * as StellarSdk from "@stellar/stellar-sdk";
-import { captureTransactionError } from "./errorTracking";
+import {
+  rpc,
+  xdr,
+  TransactionBuilder,
+  BASE_FEE,
+  Contract,
+  Keypair,
+  Account,
+  scValToBigInt,
+  Address,
+  nativeToScVal,
+  Transaction,
+} from "@stellar/stellar-sdk";import { captureTransactionError } from "./errorTracking";
 import {
   classifyRpcFailure,
   classifySimulationFailure,

@@ -1,6 +1,12 @@
 import { getAddress, signTransaction } from "@stellar/freighter-api";
-import * as StellarSdk from "@stellar/stellar-sdk";
-import { wrapFreighterError } from "../utils/freighterErrors";
+import {
+  hash,
+  TransactionBuilder,
+  Account,
+  BASE_FEE,
+  Operation,
+  Transaction,
+} from "@stellar/stellar-sdk";import { wrapFreighterError } from "../utils/freighterErrors";
 
 const OFFCHAIN_API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
 const NETWORK_PASSPHRASE =
