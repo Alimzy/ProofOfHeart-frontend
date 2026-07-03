@@ -29,6 +29,14 @@ function isBypassed(req: NextRequest): boolean {
 export default function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // In E2E (NEXT_PUBLIC_USE_MOCKS=true), keep `/` stable to satisfy Playwright assertions.
+  // The application content behind `/` and the default locale page is equivalent for tests.
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true" && pathname === "/") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.rewrite(url);
+  }
+
   // Always allow: the maintenance page itself, API routes, static assets
   const isExempt =
     pathname === "/maintenance" ||

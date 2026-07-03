@@ -7,6 +7,13 @@ export function useOnboardingTour() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
+    // Playwright E2E uses NEXT_PUBLIC_USE_MOCKS=true. Disable the blocking onboarding tour
+    // so critical UI flows (wallet connect, voting) aren't intercepted by the modal overlay.
+    if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
+      setShow(false);
+      return;
+    }
+
     const dismissed = localStorage.getItem(STORAGE_KEY);
     if (!dismissed) {
       setShow(true);
